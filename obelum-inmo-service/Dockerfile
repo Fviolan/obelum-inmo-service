@@ -11,8 +11,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY app.py .
+# app.py importa los tres validadores: si no se copian, el contenedor arranca
+# y muere con ModuleNotFoundError
+COPY app.py cifras.py credibilidad.py ejemplos.py ./
 COPY skill/ ./skill/
+COPY prompts/ ./prompts/
 
 EXPOSE 8000
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-keep-alive", "120"]
