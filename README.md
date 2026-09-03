@@ -20,6 +20,7 @@ otro repo, para que Easypanel lo despliegue igual.
 | POST | `/asunto` | Asunto ya redactado para las variantes A y C |
 | POST | `/validar` | Revisa el contenido del informe antes de maquetarlo |
 | POST | `/report` | Genera PDF y HTML desde el `content.json` del informe |
+| POST | `/auditoria` | **Todo lo anterior en una llamada**: recon, rivales, comparativa, informe validado, PDF y el asunto y cuerpo del Email 1 |
 
 `/recon` devuelve, además del recon completo, los tres campos que el Flujo 1 escribe en Airtable:
 `nombre`, `barrio` y `tiempo_carga`, más un `resumen_compacto` pensado para caber en un campo de
@@ -37,10 +38,14 @@ puede ejecutar estos validadores por su cuenta, por eso los expone el servicio.
 | **ejemplos** | barrios y nombres propios que no salen de la web auditada (*«piso en Gracia»*) |
 | **credibilidad** | un semaforo entero en rojo, que nadie se cree |
 
-El flujo hace: LLM -> `/validar` -> si hay avisos, LLM otra vez con esos avisos
--> `/report`. Dos vueltas bastan en la practica.
+`/auditoria` ya hace ese bucle por dentro: LLM -> validar -> si hay avisos, otra vez con el
+detalle -> `/report`. Dos vueltas bastan en la practica.
 
-Los prompts de los dos nodos de OpenRouter estan en `prompts/`.
+Los avisos dicen **cuantos caracteres caben**, no cuantas lineas: un modelo no traduce lineas a
+caracteres y con el razonamiento apagado se lo saltaba. Con el objetivo exacto («tiene 85
+caracteres, acortalo a 67») las correcciones bajaron de 421 a 258 segundos por auditoria.
+
+Los prompts estan en `prompts/`.
 
 ## Trampas del despliegue
 
@@ -90,6 +95,10 @@ DuckDuckGo, que funciona pero da resultados peores.
 | Variable | Por defecto | Para qué |
 |---|---|---|
 | `SERPER_API_KEY` | — | serper.dev, buscador de competidores |
+| `OPENROUTER_API_KEY` | — | redaccion del informe y del email |
+| `SERVICE_TOKEN` | — | cabecera `X-Obelum-Token`; vacio = sin autenticacion |
+| `RAZONAMIENTO` | `on` | `on`/`off`/`low`/`medium`/`high` |
+| `MODELO_LLM` | `deepseek/deepseek-v4-flash` | modelo de OpenRouter |
 | `RECON_PAGINAS` | 6 | páginas internas por lead |
 | `RECON_PAGINAS_RIVAL` | 4 | páginas por competidor |
 | `CACHE_DIR` | `/tmp/obelum-inmo-cache` | dónde vive la caché |
@@ -111,7 +120,18 @@ Easypanel, proyecto `prueba1`, junto a `n8n` y `obelumpdfservice`. Se llama por 
 Docker: `http://prueba1_obeluminmoservice:8000` (el `:80` que enseña el panel es del proxy
 externo y no sirve para llamadas internas).
 
-## Coste por lead
+## Coste y tiempo por lead
 
-Con caché caliente y 2 rivales: **~15 segundos**. Los 304 leads de la base salen en algo más de
-una hora, no en seis.
+Medido de punta a punta con `/auditoria`, dos rivales y razonamiento activado:
+
+| | Con razonamiento (por defecto) | Sin razonamiento |
+|---|---|---|
+| Tiempo | **258 s** | 110 s |
+| Coste | **0,0051 $** | 0,0017 $ |
+| Textos cortados en el PDF | **0** | 5 |
+
+Los 304 leads: unas **22 horas** de reloj y **1,6 $**. Como el flujo va por cron de madrugada y
+las auditorias se acumulan, se prefiere la calidad al reloj.
+
+El recon en si es rapido (3 s desde el servidor, 15 s con los rivales cacheados): el tiempo se lo
+lleva el modelo razonando.
