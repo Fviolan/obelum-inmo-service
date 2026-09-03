@@ -11,9 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-# app.py importa los tres validadores: si no se copian, el contenedor arranca
-# y muere con ModuleNotFoundError
-COPY app.py cifras.py credibilidad.py ejemplos.py ./
+# TODOS los modulos de golpe. Listarlos uno a uno ya rompio el despliegue dos
+# veces: se anade un modulo nuevo, nadie se acuerda de tocar esta linea, la
+# imagen construye bien y el contenedor muere con ModuleNotFoundError.
+COPY *.py ./
 COPY skill/ ./skill/
 COPY prompts/ ./prompts/
 
