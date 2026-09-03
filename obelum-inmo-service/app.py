@@ -551,7 +551,10 @@ def endpoint_recon(entrada: ReconIn):
     datos = recon.run(url, paginas, quiet=True)
     if "error" in datos:
         log.warning("recon fallido %s: %s", url, datos["error"])
-        return JSONResponse(status_code=502, content={
+        # 422 y no 502: el proxy de Easypanel intercepta los 502 y los sustituye
+        # por su propia pagina HTML, asi que el motivo real del fallo no llegaria
+        # a n8n y en Error Auditoria se guardaria basura en vez de la causa.
+        return JSONResponse(status_code=422, content={
             "ok": False, "url": url, "error": datos["error"],
         })
 
