@@ -374,6 +374,12 @@ def analyze_page(res: dict, base: str) -> dict:
         # los widgets de WhatsApp montan el enlace por JS: contar menciones
         # evita afirmar que no lo tienen cuando si
         "menciones_whatsapp": len(re.findall(r"whatsapp", html, re.I)),
+        # lo mismo con el buscador de inmuebles: muchos van montados en JS y no
+        # dejan un <form> que detectar
+        "senales_buscador": len(re.findall(
+            r"(searchform|search-form|propertysearch|buscador|form-?busqueda|"
+            r"filtro[s-]?(inmueble|propiedad|busqueda)|advanced-?search)",
+            html, re.I)),
     }
 
     # --- tecnologías
@@ -658,6 +664,7 @@ def run(url: str, max_pages: int, quiet: bool) -> dict:
         "telefonos": sorted({t for pg in todas for t in pg["links"]["tel"]}),
         "whatsapp": sorted({t for pg in todas for t in pg["links"]["whatsapp"]}),
         "menciones_whatsapp": sum(pg["text"]["menciones_whatsapp"] for pg in todas),
+        "senales_buscador": sum(pg["text"]["senales_buscador"] for pg in todas),
         "emails": sorted({t for pg in todas for t in pg["links"]["mailto"]}),
         "hay_formulario_captacion": any(f["es_captacion"] for pg in todas for f in pg["forms"]),
         "hay_buscador": any(f["es_buscador"] for pg in todas for f in pg["forms"]),

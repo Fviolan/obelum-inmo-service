@@ -203,7 +203,15 @@ def resumen_compacto(datos: dict) -> dict:
         "schema": r.get("schema_types"),
         "captacion": r.get("hay_formulario_captacion"),
         "paginas_captacion": (r.get("paginas_captacion") or [])[:3],
-        "buscador": r.get("hay_buscador"),
+        # tres senales, igual que con WhatsApp: formulario de busqueda, URLs de
+        # listado o ficha en la portada, o rastros de buscador en el JS. Solo con
+        # las tres a cero se puede afirmar que no tienen buscador propio.
+        "buscador": bool(r.get("hay_buscador"))
+                    or bool(r.get("listados_en_home"))
+                    or bool(r.get("fichas_en_home"))
+                    or (r.get("senales_buscador") or 0) > 0,
+        "buscador_formulario": bool(r.get("hay_buscador")),
+        "buscador_senales_js": r.get("senales_buscador") or 0,
         "fichas_home": r.get("fichas_en_home"),
         "listados_home": r.get("listados_en_home"),
         # tres senales: enlace directo, widget detectado o la palabra en el HTML.
@@ -418,6 +426,10 @@ def analizar_hallazgos(datos: dict, barrio: str, tiempo: float | None) -> dict:
     if not rc.get("buscador"):
         anota(CAT_OTRO, 50,
               "No hay buscador de inmuebles propio: quien busca piso acaba en los portales")
+    elif not rc.get("buscador_formulario") and rc.get("buscador_senales_js", 0) < 3:
+        # hay algun rastro pero no un buscador claro: se anota sin afirmar nada
+        anota(CAT_OTRO, 25,
+              "El buscador de inmuebles no se encuentra facilmente desde la portada")
 
     if not paginas_zona(datos):
         anota(CAT_SEO, 45,
