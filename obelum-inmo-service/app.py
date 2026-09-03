@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 SKILL = Path(__file__).parent / "skill"
 sys.path.insert(0, str(SKILL))
 
+import auditoria  # noqa: E402
 import compare  # noqa: E402
 from cifras import revisar_cifras  # noqa: E402
 from credibilidad import revisar_credibilidad  # noqa: E402
@@ -51,6 +52,25 @@ logging.basicConfig(
 log = logging.getLogger("obelum-inmo")
 
 app = FastAPI(title="Obelum Inmo Service", version="1.0.0")
+
+SERVICE_TOKEN = os.getenv("SERVICE_TOKEN", "").strip()
+# /health queda libre para que el monitor de Easypanel siga funcionando
+RUTAS_LIBRES = {"/health"}
+
+
+@app.middleware("http")
+async def exigir_token(request: Request, call_next):
+    """El servicio esta expuesto en internet y su repo es publico: sin esto,
+    cualquiera puede gastar la cuota de Serper y generar informes con el logo
+    de Obelum. Si SERVICE_TOKEN no esta puesto, no se exige nada (desarrollo)."""
+    if SERVICE_TOKEN and request.url.path not in RUTAS_LIBRES:
+        if request.headers.get("X-Obelum-Token", "") != SERVICE_TOKEN:
+            log.warning("peticion rechazada sin token: %s %s",
+                        request.method, request.url.path)
+            return JSONResponse(status_code=401,
+                                content={"ok": False, "error": "token invalido o ausente"})
+    return await call_next(request)
+
 
 PAGINAS_POR_DEFECTO = int(os.getenv("RECON_PAGINAS", "6"))
 PAGINAS_RIVAL = int(os.getenv("RECON_PAGINAS_RIVAL", "4"))
@@ -765,6 +785,151 @@ def endpoint_validar(entrada: ValidarIn):
         "total": len(todos),
         "recuento_campos": [a for a in recuentos if a not in todos],
     }
+
+
+
+class AuditoriaIn(BaseModel):
+    url: str
+    ciudad: str = ""
+    rivales: int = Field(default=2, ge=0, le=3)
+
+
+@app.post("/auditoria")
+def endpoint_auditoria(entrada: AuditoriaIn):
+    """Auditoria completa de un lead en una sola llamada.
+
+    Encadena todo lo que el Flujo 1 necesita: mide la web, busca y audita a sus
+    rivales, cruza la comparativa, redacta el informe, lo valida y lo corrige,
+    maqueta el PDF y escribe el asunto y el cuerpo del Email 1.
+
+    Se hace aqui y no en el canvas de n8n porque toda esta logica ya estaba
+    escrita y probada en Python: replicarla en veinte nodos seria reescribirla
+    en JavaScript y volver a estrenar sus fallos.
+    """
+    t0 = time.time()
+    gasto = auditoria.GastoLLM()
+    ciudad = (entrada.ciudad or "").strip()
+
+    # 1) el lead, siempre fresco
+    cli = endpoint_recon(ReconIn(url=entrada.url, ciudad=ciudad, cache=False))
+    if isinstance(cli, JSONResponse):
+        return cli
+
+    # 2) los rivales de su ciudad, desde cache: son los mismos para todos los
+    #    leads de esa ciudad y sin cache cada lead tardaria 65 s en vez de 15
+    recons_rivales, nombres_rivales, pesos_rivales = [], [], []
+    if entrada.rivales and ciudad:
+        try:
+            comp = endpoint_competidores(CompetidoresIn(
+                ciudad=ciudad, dominio_excluido=entrada.url,
+                maximo=entrada.rivales))
+            for c in (comp.get("competidores") or []):
+                d = endpoint_recon(ReconIn(url=c["url"], ciudad=ciudad,
+                                           paginas=PAGINAS_RIVAL, cache=True))
+                if not isinstance(d, JSONResponse):
+                    recons_rivales.append(d["recon"])
+                    nombres_rivales.append(d["nombre"])
+                    # el peso de la portada de cada rival sostiene el asunto de
+                    # la variante A: «pesa X MB, N veces mas que tu competencia»
+                    pesos_rivales.append(round(
+                        (d["resumen_compacto"].get("peso_home_kb") or 0) / 1024, 2))
+        except Exception as exc:
+            # sin rivales el informe sale de 3 paginas en vez de 4: se puede
+            # entregar igual, asi que un fallo aqui no tumba el lead
+            log.warning("competidores fallaron (%s): informe sin comparativa",
+                        type(exc).__name__)
+
+    comparativa = {}
+    if recons_rivales:
+        comparativa = endpoint_comparativa(ComparativaIn(
+            recon_cliente=cli["recon"], recons_rivales=recons_rivales,
+            nombres=[cli["nombre"]] + nombres_rivales))["competencia"]
+
+    # 3) el informe: lo que el modelo puede citar y nada mas
+    h = cli["hallazgo"]
+    permitido = {
+        "web": cli["url_normalizada"], "nombre": cli["nombre"], "ciudad": ciudad,
+        "hallazgo_principal": h["hallazgo_principal"],
+        # sin el campo gravedad: es una puntuacion interna y el modelo la citaba
+        # literalmente en el informe del cliente («gravedad 85»)
+        "todos_los_hallazgos": [c["hallazgo"] for c in h["candidatos"]],
+        "datos_medidos": cli["resumen_compacto"],
+    }
+    if comparativa:
+        permitido["comparativa_con_rivales"] = {
+            "columnas": comparativa["columnas"], "filas": comparativa["filas"],
+            "pierde_en": comparativa["_pierde_en"],
+            "gana_en": comparativa["_gana_en"]}
+
+    def validar(contenido):
+        prueba = dict(contenido)
+        prueba["competencia"] = {"titular": contenido.get("titular_competencia", "")}
+        return endpoint_validar(ValidarIn(contenido=prueba,
+                                          permitido=permitido))["avisos"]
+
+    contenido, avisos = auditoria.generar_informe(permitido, gasto, validar)
+
+    # 4) el PDF
+    comp_final = dict(comparativa)
+    comp_final.pop("_nota_titular", None)
+    if comp_final:
+        comp_final["titular"] = contenido.pop("titular_competencia", "")
+    else:
+        contenido.pop("titular_competencia", None)
+
+    ficha = {
+        "slug": re.sub(r"[^a-z0-9]+", "-", (cli["nombre"] or "lead").lower()).strip("-")[:40],
+        "url": cli["url_normalizada"], "cliente": cli["nombre"], "ciudad": ciudad,
+        "sector": "Inmobiliaria", "fecha": time.strftime("%Y-%m-%d"),
+        "marca": {"acento": (cli.get("colores_marca") or ["#0f4c81"])[0],
+                  "acento2": "#0b3358"},
+        "note": (f"Datos obtenidos por analisis automatizado de "
+                 f"{cli['resumen_compacto'].get('paginas')} paginas del sitio. "
+                 f"Sin acceso a Analytics ni Search Console del cliente."),
+        **contenido,
+    }
+    if comp_final:
+        ficha["competencia"] = comp_final
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        base = nombre_archivo(ficha)
+        ruta_pdf = Path(tmp) / f"{base}.pdf"
+        generate.create_pdf(ficha, ruta_pdf)
+        pdf = ruta_pdf.read_bytes()
+
+    # 5) el email: asunto por regla si toca, si no por rotacion
+    reglado = endpoint_asunto(AsuntoIn(
+        nombre=cli["nombre"], hallazgo=h,
+        resumen_compacto=cli["resumen_compacto"],
+        pesos_rivales_mb=pesos_rivales))
+    variante = reglado.get("tipo_e1") or auditoria.variante_rotada(cli["url_normalizada"])
+    email = auditoria.generar_email(cli, comparativa, reglado.get("asunto"),
+                                    variante, gasto)
+
+    salida = {
+        "ok": True,
+        "nombre": cli["nombre"],
+        "barrio": cli["barrio"],
+        "barrio_es_real": cli["barrio_es_real"],
+        "tiempo_carga": cli["tiempo_carga"],
+        "hallazgo_principal": h["hallazgo_principal"],
+        "tipo_hallazgo": h["tipo_hallazgo"],
+        "tipo_e1": email["tipo_e1"],
+        "asunto": email["asunto"],
+        "cuerpo": email["cuerpo"],
+        "resumen_recon": json.dumps(cli["resumen_compacto"], ensure_ascii=False)[:95000],
+        "nombre_pdf": f"{nombre_archivo(ficha)}.pdf",
+        "pdf_base64": base64.b64encode(pdf).decode("ascii"),
+        "avisos": avisos,
+        "rivales": nombres_rivales,
+        "gasto_llm": gasto.resumen(),
+        "segundos": round(time.time() - t0, 1),
+    }
+    log.info("auditoria %s -> %s, E1=%s, %s KB, %ss, $%s",
+             cli["url_normalizada"], cli["nombre"], email["tipo_e1"],
+             round(len(pdf) / 1024), salida["segundos"], gasto.dolares)
+    return salida
 
 
 # --- manejador global: nada se pierde sin traceback -------------------------

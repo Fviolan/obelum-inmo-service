@@ -795,6 +795,27 @@ def _lineas(texto, fuente, tam, ancho):
     return len(wrap(c, str(texto or ""), fuente, tam, ancho))
 
 
+def _max_caracteres(texto, fuente, tam, ancho, lineas):
+    """Cuantos caracteres del texto caben en el hueco.
+
+    Se recorta palabra a palabra hasta que entra: da un objetivo exacto que el
+    modelo puede cumplir, en vez de hablarle de lineas.
+    """
+    palabras = str(texto or "").split()
+    for corte in range(len(palabras), 0, -1):
+        prueba = " ".join(palabras[:corte])
+        if _lineas(prueba, fuente, tam, ancho) <= lineas:
+            return len(prueba)
+    return 0
+
+
+def _aviso(campo, texto, fuente, tam, ancho, lineas, n):
+    cabe = _max_caracteres(texto, fuente, tam, ancho, lineas)
+    return (f"{campo}: tiene {len(str(texto))} caracteres y ocupa {n} lineas; "
+            f"caben {lineas}. Acortalo a {cabe} caracteres como maximo. "
+            f"Texto actual: {str(texto)[:70]}")
+
+
 def revisar_ajuste(data: dict) -> list[str]:
     """Devuelve los textos que se cortarian al maquetar."""
     avisos = []
@@ -805,11 +826,12 @@ def revisar_ajuste(data: dict) -> list[str]:
     for i, a in enumerate(data.get("areas", []), 1):
         n = _lineas(a.get("badge"), "Helvetica-Bold", T_BADGE, iw)
         if n > 2:
-            avisos.append(f"area {i} badge ocupa {n} lineas (caben 2): "
-                          f"{str(a.get('badge'))[:60]}")
+            avisos.append(_aviso(f"area {i} badge", a.get("badge"),
+                                 "Helvetica-Bold", T_BADGE, iw, 2, n))
         n = _lineas(a.get("desc"), "Helvetica", T_DESC_AREA, iw)
         if n > 5:
-            avisos.append(f"area {i} desc ocupa {n} lineas (caben 5)")
+            avisos.append(_aviso(f"area {i} desc", a.get("desc"),
+                                 "Helvetica", T_DESC_AREA, iw, 5, n))
 
     for i, b in enumerate(data.get("blockers", []), 1):
         etiqueta = f"· {b.get('title', '')}: "
@@ -817,23 +839,30 @@ def revisar_ajuste(data: dict) -> list[str]:
             etiqueta, "Helvetica-Bold", T_BLOCKER)
         n = _lineas(b.get("desc"), "Helvetica", T_BLOCKER, ancho)
         if n > 1:
-            avisos.append(f"bloqueante {i} desc ocupa {n} lineas (cabe 1): "
-                          f"{str(b.get('desc'))[:60]}")
+            avisos.append(_aviso(f"bloqueante {i} desc", b.get("desc"),
+                                 "Helvetica", T_BLOCKER, ancho, 1, n))
 
     for i, a in enumerate(data.get("actions", []), 1):
         t = str(a.get("title", ""))
         if pdfmetrics.stringWidth(t, "Helvetica-Bold", T_ACCION_TIT) > ancho_accion - 42 * mm:
-            avisos.append(f"accion {i} titulo demasiado largo: {t[:50]}")
+            cabe_t = _max_caracteres(t, "Helvetica-Bold", T_ACCION_TIT,
+                                     ancho_accion - 42 * mm, 1)
+            avisos.append(f"accion {i} titulo: tiene {len(t)} caracteres y no cabe "
+                          f"en una linea. Acortalo a {cabe_t} como maximo. "
+                          f"Texto actual: {t[:50]}")
         n = _lineas(a.get("desc"), "Helvetica", T_ACCION_DESC, ancho_accion - 17 * mm)
         if n > 2:
-            avisos.append(f"accion {i} desc ocupa {n} lineas (caben 2)")
+            avisos.append(_aviso(f"accion {i} desc", a.get("desc"),
+                                 "Helvetica", T_ACCION_DESC,
+                                 ancho_accion - 17 * mm, 2, n))
 
     ancho_comp = (W - 2 * MARGEN - 8 * mm) / 2 - 16 * mm
     for campo in ("antes", "despues"):
         for i, t in enumerate(data.get(campo, []), 1):
             n = _lineas(t, "Helvetica", T_COMPARADOR, ancho_comp)
             if n > 2:
-                avisos.append(f"{campo} {i} ocupa {n} lineas (caben 2)")
+                avisos.append(_aviso(f"{campo} {i}", t, "Helvetica",
+                                     T_COMPARADOR, ancho_comp, 2, n))
 
     n = _lineas(data.get("diagnostico"), "Helvetica-Bold", T_DIAGNOSTICO,
                 W - 2 * MARGEN - 10 * mm)
