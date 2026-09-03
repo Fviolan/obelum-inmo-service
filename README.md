@@ -42,6 +42,20 @@ El flujo hace: LLM -> `/validar` -> si hay avisos, LLM otra vez con esos avisos
 
 Los prompts de los dos nodos de OpenRouter estan en `prompts/`.
 
+## Trampas del despliegue
+
+**El `Dockerfile` copia `*.py`, no una lista escrita a mano.** Listar los modulos uno a uno
+rompio el despliegue dos veces: se anade un modulo, nadie actualiza la linea, la imagen construye
+bien y el contenedor muere con `ModuleNotFoundError`. Desde fuera solo se ve un 502 sin pistas.
+
+**El servicio exige la cabecera `X-Obelum-Token`** contra la variable `SERVICE_TOKEN`. `/health`
+queda libre para el monitor de Easypanel. Si `SERVICE_TOKEN` no esta puesta, no se exige nada:
+asi el desarrollo en local no necesita token.
+
+**`RAZONAMIENTO=on`** por defecto. Medido sobre el mismo lead: con razonamiento 258 s, 0,0051 $ y
+cero textos cortados; sin el, 110 s, 0,0017 $ y cinco titulares cortados a media palabra. Las
+auditorias se generan de noche y se acumulan, asi que el reloj no aprieta y se prefiere la calidad.
+
 ## Decisiones que conviene no deshacer
 
 **La URL se normaliza a la raíz del dominio.** Los leads de Airtable traen URLs profundas con UTM
