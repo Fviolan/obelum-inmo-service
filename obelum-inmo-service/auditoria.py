@@ -143,6 +143,13 @@ REGLAS INNEGOCIABLES
    medido y suena a insulto. Describe lo que pasa, no lo que alguien opina.
 7. Prohibidas las frases de relleno que no significan nada. Cada frase tiene que poder
    discutirse con un dato delante.
+8. VELOCIDAD: un tiempo_carga por debajo de 2.2 segundos es correcto. NUNCA digas que es
+   lento, que tarda demasiado o que está por encima de lo recomendado si el dato es menor
+   de 2.2 s, aunque el resto de la web tenga fallos. Y no mezcles tiempo_carga con el peso
+   de las imágenes (peso_portada_MB o similar) en la misma frase como si fueran el mismo
+   hecho: son dos medidas independientes. Si la web es rápida pero las fotos pesan mucho,
+   dilo así: rápida de servidor, pesada de fotos — nunca "pesa X MB y tarda Y segundos,
+   muy por encima de lo recomendado" cuando Y es menor de 2.2.
 
 ESTRUCTURA DEL CUERPO
 Párrafo 1 (el único que escribes tú, 3 o 4 frases): empieza con He revisado <dominio>
