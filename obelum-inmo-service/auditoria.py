@@ -81,6 +81,16 @@ REGLAS INNEGOCIABLES
    el informe parece un argumentario de venta y pierde credibilidad.
 7. BREVEDAD: el informe es una maqueta con huecos fijos. Un texto que no cabe se
    corta a media palabra. Respeta los límites al pie de la letra.
+8. VELOCIDAD, criterio exacto para el área 6 (Salud técnica y velocidad): un
+   tiempo_carga por debajo de 2.2 segundos es correcto, NUNCA lo llames lento ni
+   crítico, aunque el resto del área tenga fallos (esos fallos van por su propia
+   señal, no por la velocidad). Entre 2.2 y 3.5 s es mejorable. Solo por encima de
+   3.5 s es un problema real de velocidad. Y no mezcles tiempo_carga con el peso de
+   las imágenes de portada (peso_portada_MB o similar) en la misma frase como si
+   fueran el mismo hecho: son dos medidas independientes (una es solo la descarga
+   del HTML, la otra el peso de las fotos que se cargan aparte) y juntarlas suena
+   contradictorio («la portada pesa 9 MB y carga en 900 ms» no se entiende).
+   Cuéntalas siempre por separado.
 
 DEVUELVE SOLO UN JSON con esta forma exacta, sin texto alrededor ni bloques de codigo:
 {
