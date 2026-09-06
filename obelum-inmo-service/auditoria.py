@@ -293,6 +293,64 @@ def montar_cuerpo(parrafo1: str) -> str:
     return "\n\n".join([limpiar_comillas(parrafo1).strip(), P2, P3, P4, FIRMA])
 
 
+# --- guarda contra palabras mutiladas ---------------------------------------
+# El bucle de correccion pide acortar textos. Si el modelo obedece borrando
+# letras en vez de reescribir, el PDF sale con faltas: "buscador propio" acabo
+# como "oscador ropio" en gruphabitat.cat el 6/9/2026. Comparando el texto
+# antes y despues de cada correccion se detecta sin diccionario: una palabra
+# nueva que resulta ser una palabra vieja a la que le falta una letra.
+
+_PALABRA = re.compile(r"[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]+")
+_ALFA = "abcdefghijklmnopqrstuvwxyzáéíóúüñ"
+
+
+def _textos(obj) -> list:
+    """Todas las cadenas de un JSON anidado."""
+    if isinstance(obj, str):
+        return [obj]
+    if isinstance(obj, dict):
+        return [t for v in obj.values() for t in _textos(v)]
+    if isinstance(obj, list):
+        return [t for v in obj for t in _textos(v)]
+    return []
+
+
+def _falta_una_letra(corta: str, vocabulario: set) -> str:
+    """Si `corta` es una palabra del vocabulario sin una letra, la devuelve.
+
+    No se prueba la ultima posicion: ahi la insercion suele ser un plural
+    legitimo ("dato" -> "datos") y marcarlo daria falsos positivos.
+    """
+    for i in range(len(corta)):
+        for ch in _ALFA:
+            largo = corta[:i] + ch + corta[i:]
+            if largo in vocabulario:
+                return largo
+    return ""
+
+
+def palabras_mutiladas(antes: dict, despues: dict) -> list:
+    """Palabras que la correccion dejo rotas. Lista vacia si todo esta bien."""
+    viejas = {w.lower() for t in _textos(antes) for w in _PALABRA.findall(t)}
+    rotas = []
+    for texto in _textos(despues):
+        tokens = [w.lower() for w in _PALABRA.findall(texto)]
+        for j, w in enumerate(tokens):
+            if len(w) < 2 or w in viejas:
+                continue
+            largo = _falta_una_letra(w, viejas)          # letra comida
+            if largo:
+                rotas.append("%s (era %s)" % (w, largo))
+                continue
+            if j + 1 < len(tokens):                      # palabra partida en dos
+                unida = w + tokens[j + 1]
+                if unida not in viejas:
+                    largo = _falta_una_letra(unida, viejas)
+                    if largo:
+                        rotas.append("%s %s (era %s)" % (w, tokens[j + 1], largo))
+    return rotas
+
+
 # --- el informe -------------------------------------------------------------
 
 def generar_informe(permitido: dict, gasto: GastoLLM, validar) -> tuple[dict, list]:
@@ -310,12 +368,22 @@ def generar_informe(permitido: dict, gasto: GastoLLM, validar) -> tuple[dict, li
         if not avisos:
             return contenido, []
         log.info("informe: vuelta %s de correccion, %s avisos", vuelta, len(avisos))
+        previo = contenido
         contenido = corregir(
             SISTEMA_INFORME, contenido,
             "Tu JSON tiene problemas. Corrige SOLO lo indicado, sin cambiar el "
-            "significado ni tocar el resto. Devuelve el JSON entero otra vez, con "
+            "significado ni tocar el resto. Todas las palabras deben quedar "
+            "enteras y bien escritas: si algo no cabe, se reescribe mas corto, "
+            "nunca se le borran letras. Devuelve el JSON entero otra vez, con "
             "la misma estructura.\n\nPROBLEMAS:",
             avisos, gasto)
+        # Un texto que se sale un poco es mucho menos grave que un informe con
+        # faltas de ortografia: si la correccion rompio palabras, se descarta.
+        rotas = palabras_mutiladas(previo, contenido)
+        if rotas:
+            log.warning("correccion %s descartada, dejo palabras rotas: %s",
+                        vuelta, "; ".join(rotas[:5]))
+            return previo, validar(previo)
 
     # tercera revision: la ultima correccion tambien se comprueba
     return contenido, validar(contenido)

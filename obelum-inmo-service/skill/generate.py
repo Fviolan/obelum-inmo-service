@@ -810,9 +810,21 @@ def _max_caracteres(texto, fuente, tam, ancho, lineas):
 
 
 def _aviso(campo, texto, fuente, tam, ancho, lineas, n):
+    """Pide al modelo que acorte un texto.
+
+    OJO con como se redacta esto. Dar solo un objetivo en caracteres, junto al
+    "no cambies el significado" del bucle de correccion, empuja al modelo a
+    cumplir por la via literal: borrar letras de las palabras. Conserva todas
+    las palabras (significado intacto) y baja el recuento. Paso de verdad el
+    6/9/2026 con gruphabitat.cat: "buscador propio" salio como "oscador ropio".
+    Por eso se le dice explicitamente COMO acortar y que esta prohibido.
+    """
     cabe = _max_caracteres(texto, fuente, tam, ancho, lineas)
     return (f"{campo}: tiene {len(str(texto))} caracteres y ocupa {n} lineas; "
-            f"caben {lineas}. Acortalo a {cabe} caracteres como maximo. "
+            f"caben {lineas}. Reescribelo mas corto, en {cabe} caracteres como "
+            f"maximo, quitando alguna idea o diciendo lo mismo con menos "
+            f"palabras. PROHIBIDO borrar letras de una palabra, abreviarla o "
+            f"partirla: todas las palabras deben quedar enteras y bien escritas. "
             f"Texto actual: {str(texto)[:70]}")
 
 
