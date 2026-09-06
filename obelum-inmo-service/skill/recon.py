@@ -143,6 +143,25 @@ def log(msg: str, quiet: bool = False) -> None:
         print(f"  {msg}", file=sys.stderr)
 
 
+# Cuantas veces se vuelve a medir la portada. Una sola medicion no vale para
+# afirmar nada: finquesgaldos.es dio 1,4 s de madrugada y 13,9 s por la manana
+# (6/9/2026), y el asunto del email acabo diciendo "tarda 13,9 segundos".
+MUESTRAS_TIEMPO = 4
+
+
+def mediana(valores) -> int:
+    """Mediana en ms. Se usa en vez de la media porque una sola pagina lenta
+    -o un mal momento del servidor- dispara la media y acabamos afirmando en
+    un asunto un numero que el destinatario no reproduce al abrir su web."""
+    xs = sorted(v for v in valores if v is not None)
+    if not xs:
+        return 0
+    n = len(xs)
+    if n % 2:
+        return int(xs[n // 2])
+    return int(round((xs[n // 2 - 1] + xs[n // 2]) / 2))
+
+
 def fetch(url: str, session: requests.Session, method: str = "GET") -> dict:
     """Descarga una URL y devuelve un dict con la respuesta o el error."""
     out = {"url": url, "ok": False, "status": None, "elapsed_ms": None,
@@ -608,6 +627,16 @@ def run(url: str, max_pages: int, quiet: bool) -> dict:
     home = analyze_page(home_res, home_res["final_url"] or url)
     log(f"home ok ({home_res['elapsed_ms']} ms, {round(home_res['bytes']/1024)} KB)", quiet)
 
+    # La portada se mide varias veces: es el numero que acaba en el asunto del
+    # email y en el semaforo, y un servidor lento en frio da valores dispares.
+    muestras_home = [home_res["elapsed_ms"]]
+    for _ in range(MUESTRAS_TIEMPO - 1):
+        extra = fetch(home_res["final_url"] or url, session)
+        if extra["ok"] and extra["elapsed_ms"] is not None:
+            muestras_home.append(extra["elapsed_ms"])
+    log(f"portada medida {len(muestras_home)}x: {muestras_home} ms "
+        f"-> mediana {mediana(muestras_home)} ms", quiet)
+
     site = {
         "url_original": url,
         "url_final": home_res["final_url"],
@@ -684,7 +713,11 @@ def run(url: str, max_pages: int, quiet: bool) -> dict:
                                          if not pg["seo"]["meta_description"]],
         "paginas_sin_h1": [pg["url"] for pg in todas if pg["headings"]["h1_count"] == 0],
         "paginas_multiple_h1": [pg["url"] for pg in todas if pg["headings"]["h1_count"] > 1],
-        "tiempo_medio_ms": round(sum(pg["elapsed_ms"] for pg in todas) / len(todas)),
+        # Mediana, pese al nombre del campo: se conserva la clave porque la leen
+        # app.py y compare.py, y el campo "Tiempo Carga" de Airtable.
+        "tiempo_medio_ms": mediana([pg["elapsed_ms"] for pg in todas] + muestras_home[1:]),
+        "tiempo_muestras_ms": muestras_home,
+        "tiempo_paginas_ms": [pg["elapsed_ms"] for pg in todas],
         "html_medio_kb": round(sum(pg["html_bytes"] for pg in todas) / len(todas) / 1024, 1),
         "imagenes_sin_alt_total": sum(pg["images"]["without_alt"] for pg in todas),
         "imagenes_total": sum(pg["images"]["count"] for pg in todas),
