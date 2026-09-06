@@ -148,6 +148,10 @@ def log(msg: str, quiet: bool = False) -> None:
 # (6/9/2026), y el asunto del email acabo diciendo "tarda 13,9 segundos".
 MUESTRAS_TIEMPO = 4
 
+# Las paginas interiores se rastrean con la sesion compartida y salen calientes,
+# asi que NO entran en el calculo del tiempo: mezclarlas con las muestras frias
+# de la portada volveria a hundir la mediana.
+
 
 def mediana(valores) -> int:
     """Mediana en ms. Se usa en vez de la media porque una sola pagina lenta
@@ -629,9 +633,14 @@ def run(url: str, max_pages: int, quiet: bool) -> dict:
 
     # La portada se mide varias veces: es el numero que acaba en el asunto del
     # email y en el semaforo, y un servidor lento en frio da valores dispares.
+    # Cada muestra abre una SESION NUEVA. Reutilizando `session` la conexion
+    # TCP/TLS ya esta caliente y los tiempos se desploman: finquesgaldos.es dio
+    # 0,5 s en caliente y 2,9 s en frio (6/9/2026). El visitante que llega desde
+    # Google entra en frio, asi que en frio hay que medirlo.
     muestras_home = [home_res["elapsed_ms"]]
     for _ in range(MUESTRAS_TIEMPO - 1):
-        extra = fetch(home_res["final_url"] or url, session)
+        with requests.Session() as fria:
+            extra = fetch(home_res["final_url"] or url, fria)
         if extra["ok"] and extra["elapsed_ms"] is not None:
             muestras_home.append(extra["elapsed_ms"])
     log(f"portada medida {len(muestras_home)}x: {muestras_home} ms "
@@ -715,7 +724,7 @@ def run(url: str, max_pages: int, quiet: bool) -> dict:
         "paginas_multiple_h1": [pg["url"] for pg in todas if pg["headings"]["h1_count"] > 1],
         # Mediana, pese al nombre del campo: se conserva la clave porque la leen
         # app.py y compare.py, y el campo "Tiempo Carga" de Airtable.
-        "tiempo_medio_ms": mediana([pg["elapsed_ms"] for pg in todas] + muestras_home[1:]),
+        "tiempo_medio_ms": mediana(muestras_home),
         "tiempo_muestras_ms": muestras_home,
         "tiempo_paginas_ms": [pg["elapsed_ms"] for pg in todas],
         "html_medio_kb": round(sum(pg["html_bytes"] for pg in todas) / len(todas) / 1024, 1),
