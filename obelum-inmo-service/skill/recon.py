@@ -148,6 +148,10 @@ def log(msg: str, quiet: bool = False) -> None:
 # (6/9/2026), y el asunto del email acabo diciendo "tarda 13,9 segundos".
 MUESTRAS_TIEMPO = 4
 
+# Segundos de pausa entre una muestra y la siguiente. Anade ~1,5 s por auditoria
+# sobre los ~258 s que ya tarda: no se nota, y evita el 429.
+PAUSA_TIEMPO = 0.5
+
 # Las paginas interiores se rastrean con la sesion compartida y salen calientes,
 # asi que NO entran en el calculo del tiempo: mezclarlas con las muestras frias
 # de la portada volveria a hundir la mediana.
@@ -639,6 +643,10 @@ def run(url: str, max_pages: int, quiet: bool) -> dict:
     # Google entra en frio, asi que en frio hay que medirlo.
     muestras_home = [home_res["elapsed_ms"]]
     for _ in range(MUESTRAS_TIEMPO - 1):
+        # Pausa entre muestras: cuatro conexiones nuevas seguidas y sin respirar
+        # es un patron que algunos servidores leen como abuso y responden 429.
+        # Paso el 7/9/2026 con lainmobiliariabcn.com, gdibo.com y galisanfincas.es.
+        time.sleep(PAUSA_TIEMPO)
         with requests.Session() as fria:
             extra = fetch(home_res["final_url"] or url, fria)
         if extra["ok"] and extra["elapsed_ms"] is not None:
