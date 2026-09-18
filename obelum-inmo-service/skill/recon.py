@@ -30,10 +30,31 @@ TIMEOUT = 20
 
 # --- vocabulario del sector -------------------------------------------------
 
+# Estricta: es la que decide si un <form> concreto es de captacion. Pide la
+# formula entera ("valoracion gratuita", "vende tu piso") para no confundir un
+# formulario de contacto con uno de captacion.
 CAPTACION_RE = re.compile(
-    r"(valoraci[oó]n\s+(gratuita|gratis|online|de\s+tu)|tasaci[oó]n\s+(gratuita|gratis|online)|"
-    r"cu[aá]nto\s+vale\s+(tu|mi)|vende(r)?\s+(tu|su|mi)\s+(casa|piso|vivienda|propiedad|inmueble)|"
+    r"(valoraci[oó]n?\s+(gratu[iï]ta|gratuita|gratis|online|de\s+tu|del\s+teu)|"
+    r"tasaci[oó]n\s+(gratuita|gratis|online)|taxaci[oó]\s+(gratu[iï]ta|gratis|online)|"
+    r"cu[aá]nto\s+vale\s+(tu|mi)|quant\s+val\s+(el\s+teu|la\s+teva)|"
+    r"vende(r)?\s+(tu|su|mi)\s+(casa|piso|vivienda|propiedad|inmueble)|"
+    r"vendre\s+(el|la)\s+(teu|teva|seu|seva)\s+(pis|casa|habitatge|immoble)|"
+    r"venem\s+(el|la)\s+(teu|teva)|vull\s+vendre|"
     r"quiero\s+vender|vender\s+con\s+nosotros|valora\s+(tu|su)\s+(casa|piso|vivienda|inmueble))",
+    re.I)
+
+# Debil: solo para URLs, titulos, H1 y textos de enlace. Aqui basta la palabra
+# suelta ("valorador", "/vender", "propietarios").
+#
+# Es deliberadamente ancha porque los dos errores no cuestan lo mismo: creer que
+# captan cuando no captan solo nos hace callar un hallazgo; creer que NO captan
+# cuando si captan es acusar en falso, y eso tumba la credibilidad del informe
+# entero. El 17/9 paso con Top House Realty y con Casaleya, en llamada.
+CAPTACION_DEBIL_RE = re.compile(
+    r"(valora|tasaci[oó]n|taxaci[oó]|"
+    r"quiero[-\s]vender|vull[-\s]vendre|vende[-\s]tu|vendetupiso|"
+    r"vender|vende|vendre|venem|captaci[oó]n?|propietari|"
+    r"cu[aá]nto\s+vale|quant\s+val|sell\s+your)",
     re.I)
 ALQUILER_RE = re.compile(r"\balquil(er|ar|o)\b", re.I)
 VENTA_RE = re.compile(r"\b(en\s+venta|comprar|compra)\b", re.I)
@@ -446,7 +467,9 @@ def analyze_page(res: dict, base: str) -> dict:
         "fichas_count": len(fichas), "fichas_sample": fichas[:12],
         "fichas_con_id": sum(1 for u in fichas if FICHA_ID_RE.search(u)),
     }
-    page["es_pagina_captacion"] = bool(CAPTACION_RE.search(contexto))
+    # con la debil: el contexto es URL + title + H1, donde "/vender" o
+    # "Valorador" ya son senal suficiente para NO afirmar una ausencia
+    page["es_pagina_captacion"] = bool(CAPTACION_DEBIL_RE.search(contexto))
 
     return page
 
@@ -716,7 +739,9 @@ def run(url: str, max_pages: int, quiet: bool) -> dict:
         "hay_buscador": any(f["es_buscador"] for pg in todas for f in pg["forms"]),
         "paginas_captacion": [pg["url"] for pg in todas if pg["es_pagina_captacion"]],
         "hay_pagina_vender": any(pg["es_pagina_captacion"] for pg in todas)
-                             or any(CAPTACION_RE.search(l["text"] or "")
+                             or any(CAPTACION_DEBIL_RE.search(l["text"] or "")
+                                    for l in home["links"]["internal_con_texto"])
+                             or any(CAPTACION_DEBIL_RE.search(l["href"] or "")
                                     for l in home["links"]["internal_con_texto"]),
         "hay_blog": any(BLOG_URL_RE.search(pg["url"]) for pg in todas)
                     or any(BLOG_URL_RE.search(l) for l in home["links"]["internal"]),
@@ -738,6 +763,9 @@ def run(url: str, max_pages: int, quiet: bool) -> dict:
         "html_medio_kb": round(sum(pg["html_bytes"] for pg in todas) / len(todas) / 1024, 1),
         "imagenes_sin_alt_total": sum(pg["images"]["without_alt"] for pg in todas),
         "imagenes_total": sum(pg["images"]["count"] for pg in todas),
+        # el vocabulario del detector es castellano y catalan: si la web esta
+        # en otra lengua, no encontrar algo no significa que no este
+        "idioma_home": (home.get("seo") or {}).get("lang"),
         "idiomas_hreflang": sorted({h for pg in todas for h in pg["seo"]["hreflang"]}),
         "idiomas_en_urls": sorted({i for pg in todas for i in pg["links"]["idiomas_en_urls"]}),
         "paginas_sin_og_image": [pg["url"] for pg in todas if not pg["seo"]["og_image"]],

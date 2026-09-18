@@ -135,6 +135,13 @@ REGLAS INNEGOCIABLES
    Las tildes son obligatorias, la ortografía impecable.
 3. Solo puedes afirmar datos que aparezcan en los DATOS MEDIDOS. No inventes cifras,
    ni servicios, ni el tamaño de la empresa. Si un dato no está, no existe.
+   PROHIBIDO citar umbrales, estadísticas de sector, estudios o porcentajes de
+   comportamiento que no salgan de los DATOS MEDIDOS, y PROHIBIDO atribuirlos a
+   nadie (Google, un estudio, la media del sector). Estas dos frases salieron de
+   verdad en correos ya enviados y no debían haber salido: «supera el umbral de
+   2,5 segundos que Google considera aceptable» y «por cada segundo de retraso
+   pierdes un 7% de conversiones». Ninguna de las dos se ha medido.
+   Las ÚNICAS cifras permitidas son las de DATOS MEDIDOS.
 4. Trata al lector SIEMPRE de tú, en singular. Nunca de vosotros. Escribe tu web,
    no tenéis, no tienes, te cuesta. Prohibido: tenéis, vuestra, vuestro, sois, os.
 5. Nada de emojis, ni mayúsculas de grito, ni signos de exclamación.

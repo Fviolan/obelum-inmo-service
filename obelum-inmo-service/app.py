@@ -201,7 +201,15 @@ def resumen_compacto(datos: dict) -> dict:
         "analytics": r.get("analytics"),
         "chat": r.get("chat"),
         "schema": r.get("schema_types"),
-        "captacion": r.get("hay_formulario_captacion"),
+        # tres senales, igual que con WhatsApp y el buscador: formulario de
+        # captacion, pagina de captacion detectada o enlace de captacion en la
+        # portada. Solo con las tres a cero se puede afirmar que no captan.
+        # Antes se miraba SOLO el <form>, y el 17/9 dos leads desmintieron el
+        # hallazgo por telefono: la mitad de los marcados lo tenian a la vista.
+        "captacion": bool(r.get("hay_formulario_captacion"))
+                     or bool(r.get("paginas_captacion"))
+                     or bool(r.get("hay_pagina_vender")),
+        "captacion_formulario": bool(r.get("hay_formulario_captacion")),
         "paginas_captacion": (r.get("paginas_captacion") or [])[:3],
         # tres senales, igual que con WhatsApp: formulario de busqueda, URLs de
         # listado o ficha en la portada, o rastros de buscador en el JS. Solo con
@@ -239,6 +247,7 @@ def resumen_compacto(datos: dict) -> dict:
         "img_sin_alt": f"{r.get('imagenes_sin_alt_total')}/{r.get('imagenes_total')}",
         "sin_meta_desc": len(r.get("paginas_sin_meta_description") or []),
         "titulos_duplicados": r.get("titulos_duplicados"),
+        "idioma_home": r.get("idioma_home"),
         "idiomas": r.get("idiomas_en_urls"),
         "legales": bool(r.get("hay_legal")),
         "colores_marca": (s.get("colores_marca") or [])[:3],
@@ -373,6 +382,20 @@ def analizar_hallazgos(datos: dict, barrio: str, tiempo: float | None) -> dict:
     rc = resumen_compacto(datos)
     candidatos = []
 
+    # Dos guardias antes de afirmar que a una web le FALTA algo.
+    #
+    # Idioma: el vocabulario del detector es castellano y catalan. En una web en
+    # ingles o en ruso, no encontrar la pagina de captacion no significa que no
+    # este: significa que no sabemos leerla. Top House Realty (lang="ru") recibio
+    # el hallazgo y lo desmintio en llamada.
+    #
+    # Profundidad: diez auditorias afirmaron una ausencia habiendo leido UNA
+    # sola pagina. Con la portada no basta para decir que algo no existe.
+    idioma = (rc.get("idioma_home") or "").lower()[:2]
+    idioma_legible = idioma in ("", "es", "ca")
+    base_suficiente = (rc.get("paginas") or 0) >= 3
+    puede_afirmar_ausencia = idioma_legible and base_suficiente
+
     def anota(cat, gravedad, frase):
         candidatos.append({"tipo": cat, "gravedad": gravedad, "hallazgo": frase})
 
@@ -391,7 +414,7 @@ def analizar_hallazgos(datos: dict, barrio: str, tiempo: float | None) -> dict:
         metrica_a = {"metrica": "tiempo", "valor": tiempo, "unidad": "s",
                      "umbral": UMBRAL_CARGA, "exceso": round(exceso_tiempo, 2)}
         anota(CAT_VELOCIDAD, 90,
-              f"La web tarda {tiempo} segundos en responder de media")
+              f"La web tarda {tiempo} segundos en responder")
     elif exceso_peso > 1:
         mb = round(peso / 1024, 1)
         metrica_a = {"metrica": "peso", "valor": mb, "unidad": "MB",
@@ -410,9 +433,13 @@ def analizar_hallazgos(datos: dict, barrio: str, tiempo: float | None) -> dict:
         anota(CAT_OTRO, 20,
               "El acceso a WhatsApp no está claro desde la home")
 
-    if not rc.get("captacion"):
+    if not rc.get("captacion") and puede_afirmar_ausencia:
         anota(CAT_CAPTACION, 80,
               "No hay página ni formulario para captar propietarios que quieren vender")
+    # No hay rama de rastro debil, a proposito: cualquier frase sobre la
+    # captacion de quien SI la tiene vuelve a ser una afirmacion sin medir.
+    # Si no se puede afirmar la ausencia, aqui no se dice nada y el angulo sale
+    # de otro hallazgo o de la comparativa.
 
     esquemas = rc.get("schema") or []
     if not any(t in esquemas for t in ("RealEstateAgent", "LocalBusiness", "Organization")):
@@ -423,7 +450,7 @@ def analizar_hallazgos(datos: dict, barrio: str, tiempo: float | None) -> dict:
         anota(CAT_SEO, 55,
               "No hay sitemap: los inmuebles nuevos tardan semanas en indexarse")
 
-    if not rc.get("buscador"):
+    if not rc.get("buscador") and puede_afirmar_ausencia:
         anota(CAT_OTRO, 50,
               "No hay buscador de inmuebles propio: quien busca piso acaba en los portales")
     elif not rc.get("buscador_formulario") and rc.get("buscador_senales_js", 0) < 3:
@@ -431,7 +458,7 @@ def analizar_hallazgos(datos: dict, barrio: str, tiempo: float | None) -> dict:
         anota(CAT_OTRO, 25,
               "El buscador de inmuebles no se encuentra facilmente desde la portada")
 
-    if not paginas_zona(datos):
+    if not paginas_zona(datos) and puede_afirmar_ausencia:
         anota(CAT_SEO, 45,
               "Ni una pagina por zona: no aparece en las busquedas de barrio")
 
