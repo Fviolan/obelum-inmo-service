@@ -128,6 +128,25 @@ COOKIE_FINGERPRINTS = {
     "Genérico": [r"cookie[-_]?consent", r"aceptar\s+cookies"],
 }
 
+# widgets de resenas: casi ninguno deja aggregateRating en el JSON-LD, asi que
+# sin esta tabla una web con 91 resenas de Google a la vista se audita como si
+# no tuviera ninguna prueba social (latiendadepisos.com, 21/9)
+RESENAS_FINGERPRINTS = {
+    "Trustindex": [r"trustindex", r"ti-widget"],
+    "Elfsight": [r"elfsight"],
+    "SociableKit": [r"sociablekit"],
+    "Taggbox": [r"taggbox"],
+    "Widget de resenas": [r"reviews?-widget", r"google-?reviews"],
+}
+
+RESENAS_TEXTO_RE = re.compile(
+    r"rese[nñ]as?|opini(?:[oó]n|ones)|testimonio|valoraci[oó]n(?:es)?", re.I)
+
+# Trustindex imprime "A base de <strong>91 resenas</strong>"; al leer el texto
+# visible las etiquetas ya son espacios, asi que basta con numero + palabra
+RESENAS_NUM_RE = re.compile(
+    r"(\d{1,5})\s*(?:rese[nñ]as?|opiniones|valoraciones|reviews?)", re.I)
+
 PORTALES = {
     "Idealista": r"idealista\.com",
     "Fotocasa": r"fotocasa\.es",
@@ -428,6 +447,11 @@ def analyze_page(res: dict, base: str) -> dict:
             r"(searchform|search-form|propertysearch|buscador|form-?busqueda|"
             r"filtro[s-]?(inmueble|propiedad|busqueda)|advanced-?search)",
             html, re.I)),
+        # prueba social: las resenas casi nunca estan en el schema, van en un
+        # widget que se monta por JS o simplemente escritas en la pagina
+        "menciones_resenas": len(RESENAS_TEXTO_RE.findall(body_text)),
+        "resenas_numero": max((int(n) for n in RESENAS_NUM_RE.findall(body_text)),
+                              default=None),
     }
 
     # --- tecnologías
@@ -436,6 +460,7 @@ def analyze_page(res: dict, base: str) -> dict:
         "analytics": detect(html, ANALYTICS_FINGERPRINTS),
         "chat": detect(html, CHAT_FINGERPRINTS),
         "cookies": detect(html, COOKIE_FINGERPRINTS),
+        "resenas": detect(html, RESENAS_FINGERPRINTS),
         "scripts_externos": sorted({urlparse(s["src"]).netloc
                                     for s in soup.find_all("script", src=True)
                                     if s["src"].startswith("http")})[:25],
@@ -476,6 +501,23 @@ def analyze_page(res: dict, base: str) -> dict:
 
 # --- análisis de sitio ------------------------------------------------------
 
+LOC_RE = re.compile(r"<loc[^>]*>(.*?)</loc>", re.I | re.S)
+CDATA_RE = re.compile(r"^\s*<!\[CDATA\[(.*?)\]\]>\s*$", re.S)
+
+
+def locs(xml: str) -> list[str]:
+    """URLs de un sitemap. Los de Yoast vienen como <loc><![CDATA[...]]></loc>:
+    sin desenvolver el CDATA no se resuelven ni se siguen los sub-sitemaps, y el
+    sitio entero se contaba como 0 URLs (latiendadepisos.com, 21/9)."""
+    out = []
+    for crudo in LOC_RE.findall(xml or ""):
+        m = CDATA_RE.match(crudo)
+        u = (m.group(1) if m else crudo).strip()
+        if u:
+            out.append(u)
+    return out
+
+
 def check_robots_sitemap(root: str, session: requests.Session, quiet: bool) -> dict:
     out = {}
     r = fetch(urljoin(root, "/robots.txt"), session)
@@ -490,27 +532,41 @@ def check_robots_sitemap(root: str, session: requests.Session, quiet: bool) -> d
     if not sitemaps:
         sitemaps = [urljoin(root, "/sitemap.xml"), urljoin(root, "/sitemap_index.xml")]
     found = []
+    # muchas webs publican el mismo indice dos veces (sitemap.xml y
+    # sitemap_index.xml): sin este registro los hijos se recorren y se cuentan
+    # por duplicado, y el total sale al doble
+    vistos = set()
     for sm in sitemaps[:6]:
+        if sm in vistos:
+            continue
+        vistos.add(sm)
         s = fetch(sm, session)
         if s["ok"] and ("<urlset" in s["text"] or "<sitemapindex" in s["text"]):
-            urls = re.findall(r"<loc>(.*?)</loc>", s["text"])
+            urls = locs(s["text"])
             found.append({"url": sm, "entries": len(urls),
                           "is_index": "<sitemapindex" in s["text"],
-                          "sample": urls[:10]})
+                          "sample": urls[:10], "urls": urls})
             log(f"sitemap {sm} -> {len(urls)} entradas", quiet)
     out["sitemaps"] = found
     # un sitemap índice no cuenta URLs: baja a sus hijos y súmalas
     if any(f["is_index"] for f in found):
         for idx in [f for f in found if f["is_index"]]:
             s = fetch(idx["url"], session)
-            for h in re.findall(r"<loc>(.*?)</loc>", s["text"] or "")[:8]:
+            for h in locs(s["text"])[:8]:
+                if h in vistos:
+                    continue
+                vistos.add(h)
                 sc = fetch(h, session)
                 if sc["ok"] and "<urlset" in sc["text"]:
-                    urls_h = re.findall(r"<loc>(.*?)</loc>", sc["text"])
+                    urls_h = locs(sc["text"])
                     found.append({"url": h, "entries": len(urls_h), "is_index": False,
-                                  "sample": urls_h[:10]})
+                                  "sample": urls_h[:10], "urls": urls_h})
                     log(f"sitemap hijo {h} -> {len(urls_h)} entradas", quiet)
-    out["sitemap_total_urls"] = sum(f["entries"] for f in found if not f["is_index"])
+    # URLs unicas, no suma de entradas: dos sitemaps pueden listar la misma
+    out["sitemap_total_urls"] = len({u for f in found if not f["is_index"]
+                                     for u in f["urls"]})
+    for f in found:
+        f.pop("urls", None)
     return out
 
 
@@ -734,6 +790,11 @@ def run(url: str, max_pages: int, quiet: bool) -> dict:
         "whatsapp": sorted({t for pg in todas for t in pg["links"]["whatsapp"]}),
         "menciones_whatsapp": sum(pg["text"]["menciones_whatsapp"] for pg in todas),
         "senales_buscador": sum(pg["text"]["senales_buscador"] for pg in todas),
+        "resenas_en_schema": any(pg["schema"]["has_rating"] for pg in todas),
+        "resenas_widgets": sorted({t for pg in todas for t in pg["tech"]["resenas"]}),
+        "menciones_resenas": sum(pg["text"]["menciones_resenas"] for pg in todas),
+        "resenas_numero": max((pg["text"]["resenas_numero"] for pg in todas
+                               if pg["text"]["resenas_numero"]), default=None),
         "emails": sorted({t for pg in todas for t in pg["links"]["mailto"]}),
         "hay_formulario_captacion": any(f["es_captacion"] for pg in todas for f in pg["forms"]),
         "hay_buscador": any(f["es_buscador"] for pg in todas for f in pg["forms"]),

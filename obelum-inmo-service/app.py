@@ -229,6 +229,20 @@ def resumen_compacto(datos: dict) -> dict:
                     or (r.get("menciones_whatsapp") or 0) > 0,
         "whatsapp_enlace": bool(r.get("whatsapp")),
         "whatsapp_menciones": r.get("menciones_whatsapp") or 0,
+        # tres senales, igual que con la captacion: aggregateRating en el schema,
+        # un widget de resenas conocido o la palabra resena/opinion/testimonio en
+        # el HTML. Solo con las tres a cero se puede afirmar que no hay prueba
+        # social. Antes se miraba SOLO el schema, y el 21/9 latiendadepisos.com
+        # salio sin prueba social teniendo 91 resenas de Google en la portada.
+        "resenas": bool(r.get("resenas_en_schema")
+                        or (home.get("schema") or {}).get("has_rating"))
+                   or bool(r.get("resenas_widgets"))
+                   or (r.get("menciones_resenas") or 0) > 0,
+        "resenas_en_schema": bool(r.get("resenas_en_schema")
+                                  or (home.get("schema") or {}).get("has_rating")),
+        "resenas_widget": (r.get("resenas_widgets") or [""])[0],
+        "resenas_numero": r.get("resenas_numero"),
+        "resenas_menciones": r.get("menciones_resenas") or 0,
         "telefonos": (r.get("telefonos") or [])[:3],
         "redes": list((r.get("redes") or {}).keys()),
         "portales": r.get("portales"),

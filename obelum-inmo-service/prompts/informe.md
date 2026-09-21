@@ -47,6 +47,19 @@ REGLAS INNEGOCIABLES
    contradictorio («la portada pesa 9 MB y carga en 900 ms» no se entiende).
    Cuéntalas siempre por separado.
 
+9. AUSENCIAS: nunca afirmes que algo NO existe si los DATOS MEDIDOS no lo dejan
+   a cero. Tres casos concretos:
+   - Prueba social: solo puedes decir que no hay resenas si resenas es false.
+     Si resenas es true, la web SI tiene prueba social, aunque resenas_en_schema
+     sea false: eso ultimo solo significa que Google no la lee como estrellas,
+     y asi hay que contarlo («tienes N resenas pero Google no las ve»).
+     Si hay resenas_numero, cita ese numero.
+   - Sitemap: solo puedes decir que no hay sitemap si sitemap_urls es 0.
+   - Captacion, buscador y WhatsApp: igual, manda el campo resumido (captacion,
+     buscador, whatsapp), no el campo _formulario ni el de menciones.
+   Afirmar una ausencia falsa es el unico error que tumba el informe entero: el
+   cliente ve en su portada lo que le acabas de decir que no tiene.
+
 DEVUELVE SOLO UN JSON con esta forma exacta, sin texto alrededor ni bloques de codigo:
 {
  "areas": [6 objetos: {"name","eje","status","badge","desc"}],
