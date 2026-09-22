@@ -589,6 +589,10 @@ def health():
         "cache_dir": str(CACHE_DIR),
         "cache_horas": CACHE_HORAS,
         "cache_entradas": len(list(CACHE_DIR.glob("*.json"))) if CACHE_DIR.exists() else 0,
+        # huella del codigo que corre de verdad: hasta ahora /health no lo decia
+        # y confirmar un redespliegue obligaba a esperar a la tanda de las 00:00
+        # y mirar un Resumen Recon en Airtable
+        "validadores": list(_grupos({}, {}, {})),
     }
 
 
@@ -803,6 +807,19 @@ def endpoint_asunto(entrada: AsuntoIn):
 
 
 
+def _grupos(contenido: dict, prueba: dict, permitido: dict) -> dict:
+    """Las cinco revisiones, en un solo sitio. /health llama a esto en vacio para
+    poder decir cuales corre: es la forma de saber si el contenedor lleva el
+    codigo nuevo sin esperar a la tanda de la noche."""
+    return {
+        "maqueta": generate.revisar_ajuste(prueba),
+        "cifras": revisar_cifras(contenido, permitido),
+        "contradicciones": revisar_contradicciones(contenido, permitido),
+        "ejemplos": revisar_ejemplos(contenido, permitido),
+        "credibilidad": revisar_credibilidad(contenido, permitido),
+    }
+
+
 class ValidarIn(BaseModel):
     contenido: dict                 # lo que devolvio el LLM
     permitido: dict = {}            # lo que se le paso: datos medidos + comparativa
@@ -831,13 +848,7 @@ def endpoint_validar(entrada: ValidarIn):
     if "competencia" not in prueba:
         prueba["competencia"] = {"titular": contenido.get("titular_competencia", "")}
 
-    grupos = {
-        "maqueta": generate.revisar_ajuste(prueba),
-        "cifras": revisar_cifras(contenido, permitido),
-        "contradicciones": revisar_contradicciones(contenido, permitido),
-        "ejemplos": revisar_ejemplos(contenido, permitido),
-        "credibilidad": revisar_credibilidad(contenido, permitido),
-    }
+    grupos = _grupos(contenido, prueba, permitido)
     todos = [a for lista in grupos.values() for a in lista]
     recuentos = generate.validar(prueba)
 
