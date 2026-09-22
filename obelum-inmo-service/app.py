@@ -36,6 +36,7 @@ sys.path.insert(0, str(SKILL))
 import auditoria  # noqa: E402
 import compare  # noqa: E402
 from cifras import revisar_cifras  # noqa: E402
+from contradicciones import revisar_contradicciones  # noqa: E402
 from credibilidad import revisar_credibilidad  # noqa: E402
 from ejemplos import revisar_ejemplos  # noqa: E402
 import generate  # noqa: E402
@@ -244,6 +245,11 @@ def resumen_compacto(datos: dict) -> dict:
         "resenas_numero": r.get("resenas_numero"),
         "resenas_menciones": r.get("menciones_resenas") or 0,
         "telefonos": (r.get("telefonos") or [])[:3],
+        # correo y blog viajan aqui porque el validador de contradicciones los
+        # necesita medidos: sin el campo no puede desmentir que el informe diga
+        # que no los hay
+        "emails": (r.get("emails") or [])[:3],
+        "blog": bool(r.get("hay_blog")),
         "redes": list((r.get("redes") or {}).keys()),
         "portales": r.get("portales"),
         "ssl_ok": s.get("certificado_ssl_valido"),
@@ -806,12 +812,14 @@ class ValidarIn(BaseModel):
 def endpoint_validar(entrada: ValidarIn):
     """Revisa el contenido del informe antes de maquetarlo.
 
-    Cuatro comprobaciones, cada una nacida de un fallo real:
-      maqueta      - textos que no caben y saldrian cortados a media palabra
-      cifras       - numeros que no estan en los datos medidos (estadisticas
-                     de sector inventadas)
-      ejemplos     - barrios y nombres propios que no salen de la web auditada
-      credibilidad - un semaforo entero en rojo no se lo cree nadie
+    Cinco comprobaciones, cada una nacida de un fallo real:
+      maqueta        - textos que no caben y saldrian cortados a media palabra
+      cifras         - numeros que no estan en los datos medidos (estadisticas
+                       de sector inventadas)
+      contradicciones- negar algo que el recon SI midio (lasose.com, 22/9: el
+                       informe dijo que no habia buscador teniendolo medido)
+      ejemplos       - barrios y nombres propios que no salen de la web auditada
+      credibilidad   - un semaforo entero en rojo no se lo cree nadie
 
     Devuelve los avisos agrupados y una lista plana lista para devolversela al
     LLM en la peticion de correccion.
@@ -826,6 +834,7 @@ def endpoint_validar(entrada: ValidarIn):
     grupos = {
         "maqueta": generate.revisar_ajuste(prueba),
         "cifras": revisar_cifras(contenido, permitido),
+        "contradicciones": revisar_contradicciones(contenido, permitido),
         "ejemplos": revisar_ejemplos(contenido, permitido),
         "credibilidad": revisar_credibilidad(contenido, permitido),
     }

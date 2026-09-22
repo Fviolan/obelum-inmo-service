@@ -105,6 +105,23 @@ REGLAS INNEGOCIABLES
    Afirmar una ausencia falsa es el unico error que tumba el informe entero: el
    cliente ve en su portada lo que le acabas de decir que no tiene.
 
+10. LO MEDIDO MANDA SOBRE TU CRITERIO. Si un campo de DATOS MEDIDOS viene a true,
+   trae una lista con algo dentro o un numero mayor que cero, ESO EXISTE y no
+   puedes escribir lo contrario en ninguna parte del informe:
+   - buscador true -> la web TIENE buscador de inmuebles.
+   - captacion true -> la web SI capta propietarios.
+   - telefonos con numeros -> hay telefono a la vista.
+   - emails con direcciones -> hay correo de contacto.
+   - whatsapp true -> tiene WhatsApp.  redes con algo -> tiene redes.
+   - blog true -> tiene blog.  resenas true -> tiene prueba social.
+   - sitemap_urls mayor que 0 -> tiene sitemap.  schema con tipos -> tiene schema.
+   Lo que SI puedes decir de cualquiera de ellos es que es mejorable, que esta
+   escondido, que no filtra bien, que Google no lo lee o que la competencia lo
+   tiene mejor. Lo que NUNCA puedes decir es que no esta.
+   Tampoco por la puerta de atras: si hay telefono medido, WhatsApp no es «la
+   unica via de contacto». Una exclusividad falsa niega lo mismo que una negacion.
+   Tu impresion al leer la web no cuenta: manda el campo.
+
 DEVUELVE SOLO UN JSON con esta forma exacta, sin texto alrededor ni bloques de codigo:
 {
  "areas": [6 objetos: {"name","eje","status","badge","desc"}],

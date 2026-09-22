@@ -33,6 +33,10 @@ TIMEOUT = 20
 # Estricta: es la que decide si un <form> concreto es de captacion. Pide la
 # formula entera ("valoracion gratuita", "vende tu piso") para no confundir un
 # formulario de contacto con uno de captacion.
+# El vocabulario va en los cuatro idiomas en que sirven estas webs: castellano,
+# catalan, ingles y frances. lasose.com sirve la portada en ingles y su «Sell
+# with Lasose» no disparaba nada: se guardo captacion false teniendo una pagina
+# de captacion con formulario de 8 campos (22/9/2026).
 CAPTACION_RE = re.compile(
     r"(valoraci[oó]n?\s+(gratu[iï]ta|gratuita|gratis|online|de\s+tu|del\s+teu)|"
     r"tasaci[oó]n\s+(gratuita|gratis|online)|taxaci[oó]\s+(gratu[iï]ta|gratis|online)|"
@@ -40,7 +44,17 @@ CAPTACION_RE = re.compile(
     r"vende(r)?\s+(tu|su|mi)\s+(casa|piso|vivienda|propiedad|inmueble)|"
     r"vendre\s+(el|la)\s+(teu|teva|seu|seva)\s+(pis|casa|habitatge|immoble)|"
     r"venem\s+(el|la)\s+(teu|teva)|vull\s+vendre|"
-    r"quiero\s+vender|vender\s+con\s+nosotros|valora\s+(tu|su)\s+(casa|piso|vivienda|inmueble))",
+    r"quiero\s+vender|vend(e|er|re)\s+(con|amb)\s+[a-z0-9áéíóúñïçà]+|"
+    r"valora\s+(tu|su)\s+(casa|piso|vivienda|inmueble)|"
+    # ingles
+    r"(sell|list)\s+(your|with)\s+[a-z0-9]+|"
+    r"(free|online|property|home|instant)\s+(valuation|appraisal)|"
+    r"valuation\s+(tool|form|report)|"
+    r"(what'?s|how\s+much\s+is)\s+(your|my)\s+(home|house|property)\s+worth|"
+    # frances
+    r"vendre\s+(votre|avec|mon|ma)\s+[a-z0-9éèàç]+|"
+    r"estimation\s+(gratuite|en\s+ligne|de\s+votre|immobili[eè]re)|"
+    r"combien\s+vaut\s+(votre|mon))",
     re.I)
 
 # Debil: solo para URLs, titulos, H1 y textos de enlace. Aqui basta la palabra
@@ -54,7 +68,9 @@ CAPTACION_DEBIL_RE = re.compile(
     r"(valora|tasaci[oó]n|taxaci[oó]|"
     r"quiero[-\s]vender|vull[-\s]vendre|vende[-\s]tu|vendetupiso|"
     r"vender|vende|vendre|venem|captaci[oó]n?|propietari|"
-    r"cu[aá]nto\s+vale|quant\s+val|sell\s+your)",
+    r"cu[aá]nto\s+vale|quant\s+val|"
+    # ingles y frances: «sell-with-lasose», «free-valuation», «owners»
+    r"sell|valuation|appraisal|estimation|propri[eé]taire|owners?|landlords?)",
     re.I)
 ALQUILER_RE = re.compile(r"\balquil(er|ar|o)\b", re.I)
 VENTA_RE = re.compile(r"\b(en\s+venta|comprar|compra)\b", re.I)
@@ -300,6 +316,10 @@ def analyze_page(res: dict, base: str) -> dict:
         "has_viewport": bool(viewport),
         "lang": (html_tag.get("lang") if html_tag else None),
         "hreflang": sorted({l.get("hreflang") for l in soup.find_all("link", hreflang=True)}),
+        # con la URL, no solo el codigo: es lo que permite entrar por la version
+        # espanola de una web multilingue en vez de auditar la inglesa
+        "hreflang_urls": {l["hreflang"]: urljoin(base, l["href"])
+                          for l in soup.find_all("link", hreflang=True, href=True)},
         "og_title": bool(soup.find("meta", property="og:title")),
         "og_image": bool(soup.find("meta", property="og:image")),
     }
@@ -421,8 +441,17 @@ def analyze_page(res: dict, base: str) -> dict:
             # el contexto manda: un formulario dentro de "Vende tu piso" es captación
             # aunque su propio texto solo enumere municipios
             "es_captacion": bool(CAPTACION_RE.search(ftext) or CAPTACION_RE.search(contexto)),
+            # el vocabulario va en cuatro idiomas: una web servida en ingles
+            # tiene el mismo buscador, solo que sus campos se llaman bedrooms
+            # y max_price en vez de dormitorios y precio maximo
             "es_buscador": bool(re.search(r"(buscar|operaci[oó]n|zona|municipio|"
-                                          r"habitacion|dormitor|precio\s*(m[ií]n|m[aá]x))",
+                                          r"habitacion|dormitor|precio\s*(m[ií]n|m[aá]x)|"
+                                          r"cercar|habitacions|dormitoris|preu|"
+                                          r"\bsearch\b|bedrooms?|bathrooms?|"
+                                          r"(min|max)[_\s-]?(price|beds?)|"
+                                          r"price[_\s-]?(min|max|from|to)|"
+                                          r"property[_\s-]?type|\blocation\b|"
+                                          r"rechercher|chambres|quartier)",
                                           ftext + " " + " ".join(
                                               f2["name"] + f2["placeholder"] for f2 in fields), re.I)),
         })
@@ -649,7 +678,8 @@ def brand_colors(stylesheets: list[str], html: str, session: requests.Session) -
 def pick_key_pages(home: dict, root: str, limit: int) -> list[str]:
     """Elige las páginas que más dicen del negocio."""
     prioridades = [
-        (re.compile(r"(vender|vende|valorar|valoraci|tasaci|propietario|compram|compra|vendi|captac)", re.I), 100),
+        (re.compile(r"(vender|vende|valorar|valoraci|tasaci|propietario|compram|compra|vendi|captac|"
+                    r"sell|valuation|appraisal|estimation|owners?)", re.I), 100),
         (re.compile(r"(contact|contacto)", re.I), 90),
         (re.compile(r"(servicio|servicios)", re.I), 70),
         (re.compile(r"(quienes-somos|nosotros|about|equipo|empresa|oficina)", re.I), 60),
@@ -686,6 +716,63 @@ def pick_key_pages(home: dict, root: str, limit: int) -> list[str]:
     return salida
 
 
+# --- idioma de entrada ------------------------------------------------------
+
+# Marcadores para decidir el idioma cuando la etiqueta <html lang> falta, que es
+# la mitad de las veces. No es un detector de idioma: solo hace falta distinguir
+# "esto esta en castellano" de "esto no".
+ES_MARCAS = re.compile(r"\b(el|la|los|las|una?|del|que|con|para|por|tu|su|m[aá]s|"
+                       r"vivienda|viviendas|inmueble|inmuebles|piso|pisos|venta|"
+                       r"alquiler|contacto|nosotros|inicio)\b", re.I)
+NO_ES_MARCAS = re.compile(r"\b(the|and|for|with|your|our|this|from|property|"
+                          r"properties|sale|rent|search|about|home|contact|"
+                          r"votre|nos|maison|vente|louer|recherche|accueil)\b", re.I)
+# textos de enlace de un selector de idioma que apunta al castellano
+ENLACE_ES_RE = re.compile(r"(espa[nñ]ol|espanyol|castellano|spanish|espagnol|"
+                          r"^\s*(es|esp)\s*$)", re.I)
+
+
+def parece_espanol(texto: str) -> bool:
+    """Heuristica de brocha gorda, solo para decidir si buscar una version /es/."""
+    return len(ES_MARCAS.findall(texto)) > len(NO_ES_MARCAS.findall(texto)) * 1.2
+
+
+def version_espanola(home: dict, html: str, url_actual: str) -> str | None:
+    """URL de la version en castellano si la portada sirve otro idioma.
+
+    lasose.com sirve la raiz en ingles: el detector de captacion, que habla
+    castellano y catalan, no vio «Sell with Lasose» y se guardo captacion false
+    teniendo /es/vende-con-lasose/ con un formulario de 8 campos (22/9/2026).
+    Si la web declara una version espanola, es esa la que hay que auditar: es la
+    que ven los propietarios de la zona, que son el publico del informe.
+    """
+    seo = home.get("seo") or {}
+    lang = (seo.get("lang") or "").strip().lower()
+    if lang.startswith("es"):
+        return None
+    if not lang and parece_espanol(html):
+        return None
+
+    candidatas = []
+    for codigo, href in (seo.get("hreflang_urls") or {}).items():
+        c = (codigo or "").strip().lower()
+        if c == "es" or c.startswith("es-"):
+            candidatas.append(href)
+    # sin hreflang, el selector de idioma: /es/ en la URL o el texto del enlace
+    for l in (home.get("links") or {}).get("internal_con_texto") or []:
+        camino = urlparse(l["href"]).path
+        if IDIOMA_RE.match(camino) and camino.lower().lstrip("/").startswith("es"):
+            candidatas.append(l["href"])
+        elif ENLACE_ES_RE.search((l["text"] or "").strip()):
+            candidatas.append(l["href"])
+
+    actual = url_actual.split("#")[0].rstrip("/")
+    for c in candidatas:
+        if c and c.split("#")[0].rstrip("/") != actual:
+            return c.split("#")[0]
+    return None
+
+
 # --- orquestación -----------------------------------------------------------
 
 def run(url: str, max_pages: int, quiet: bool) -> dict:
@@ -714,6 +801,23 @@ def run(url: str, max_pages: int, quiet: bool) -> dict:
     home = analyze_page(home_res, home_res["final_url"] or url)
     log(f"home ok ({home_res['elapsed_ms']} ms, {round(home_res['bytes']/1024)} KB)", quiet)
 
+    # Si la portada sirve otro idioma y hay version espanola, se audita esa: el
+    # informe lo lee un propietario de la zona y el vocabulario del recon es
+    # castellano. Va antes de medir tiempos para que se mida la pagina buena.
+    entrada_es = version_espanola(home, home_res.get("text") or "",
+                                  home_res["final_url"] or url)
+    if entrada_es:
+        log(f"la portada no esta en castellano, entrando por {entrada_es}", quiet)
+        es_res = fetch(entrada_es, session)
+        if es_res["ok"] and "html" in (es_res["content_type"] or ""):
+            home_res, url = es_res, entrada_es
+            home = analyze_page(home_res, home_res["final_url"] or url)
+            log(f"home /es ok ({home_res['elapsed_ms']} ms, "
+                f"{round(home_res['bytes']/1024)} KB)", quiet)
+        else:
+            log(f"no se pudo cargar {entrada_es}, sigo con la portada original", quiet)
+            entrada_es = None
+
     # La portada se mide varias veces: es el numero que acaba en el asunto del
     # email y en el semaforo, y un servidor lento en frio da valores dispares.
     # Cada muestra abre una SESION NUEVA. Reutilizando `session` la conexion
@@ -736,6 +840,8 @@ def run(url: str, max_pages: int, quiet: bool) -> dict:
     site = {
         "url_original": url,
         "url_final": home_res["final_url"],
+        # no es None cuando la portada venia en otro idioma y se entro por /es/
+        "entrada_en_espanol": entrada_es,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "servidor": home_res.get("headers", {}),
         "certificado_ssl_valido": home_res.get("ssl_ok", True),
@@ -827,6 +933,7 @@ def run(url: str, max_pages: int, quiet: bool) -> dict:
         # el vocabulario del detector es castellano y catalan: si la web esta
         # en otra lengua, no encontrar algo no significa que no este
         "idioma_home": (home.get("seo") or {}).get("lang"),
+        "entrada_en_espanol": entrada_es,
         "idiomas_hreflang": sorted({h for pg in todas for h in pg["seo"]["hreflang"]}),
         "idiomas_en_urls": sorted({i for pg in todas for i in pg["links"]["idiomas_en_urls"]}),
         "paginas_sin_og_image": [pg["url"] for pg in todas if not pg["seo"]["og_image"]],
@@ -853,9 +960,19 @@ def main() -> int:
         print(f"ERROR: {data['error']}", file=sys.stderr)
         return 1
     r = data["resumen"]
+    # se imprimen las senales compuestas, las mismas que lee el informe: mirar
+    # solo el <form> daba "captación: NO" en webs con su pagina de vender a la vista
+    captacion = (r["hay_formulario_captacion"] or bool(r["paginas_captacion"])
+                 or r["hay_pagina_vender"])
+    detalle = ("formulario" if r["hay_formulario_captacion"]
+               else "página" if r["paginas_captacion"] else "enlace")
+    buscador = (r["hay_buscador"] or bool(r["listados_en_home"])
+                or bool(r["fichas_en_home"]) or (r["senales_buscador"] or 0) > 0)
+    if r.get("entrada_en_espanol"):
+        print(f"  portada en otro idioma: auditada la versión {r['entrada_en_espanol']}")
     print(f"  {r['paginas_analizadas']} páginas | CMS/CRM: {', '.join(r['cms_y_crm']) or '?'} "
-          f"| captación: {'sí' if r['hay_formulario_captacion'] else 'NO'} "
-          f"| buscador: {'sí' if r['hay_buscador'] else 'NO'} "
+          f"| captación: {f'sí ({detalle})' if captacion else 'NO'} "
+          f"| buscador: {'sí' if buscador else 'NO'} "
           f"| schema: {', '.join(r['schema_types'][:5]) or 'ninguno'}")
     return 0
 
